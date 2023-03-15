@@ -2,6 +2,8 @@ package com.haberey.flutter.nsd_android
 
 import android.net.nsd.NsdServiceInfo
 import java.net.InetAddress
+import java.net.NetworkInterface
+import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import java.nio.charset.CharsetDecoder
 import java.nio.charset.CodingErrorAction
@@ -106,13 +108,38 @@ private fun assertValidUtf8(key: String, value: ByteArray) {
 }
 
 internal fun serializeServiceInfo(nsdServiceInfo: NsdServiceInfo): Map<String, Any?> {
+
+    val address = nsdServiceInfo.host
+
+    val host = when {
+        address == null -> null  // onServiceFound / onServiceLost
+        isMyAddress(address) && isEmptyHostname(address) -> InetAddress.getLocalHost().canonicalHostName // onServiceResolved (service on local host and hostname empty)
+        else -> address.canonicalHostName  // onServiceResolved (service is on remote host)
+    }
+
     return mapOf(
         Key.SERVICE_NAME.serializeKey to nsdServiceInfo.serviceName,
         Key.SERVICE_TYPE.serializeKey to removeLeadingAndTrailingDots(serviceType = nsdServiceInfo.serviceType),
-        Key.SERVICE_HOST.serializeKey to nsdServiceInfo.host?.canonicalHostName,
+        Key.SERVICE_HOST.serializeKey to host,
         Key.SERVICE_PORT.serializeKey to if (nsdServiceInfo.port == 0) null else nsdServiceInfo.port,
         Key.SERVICE_TXT.serializeKey to nsdServiceInfo.attributes,
     )
+}
+
+private fun isMyAddress(address: InetAddress): Boolean {
+    if (address.isLoopbackAddress || address.isAnyLocalAddress) {
+        return true
+    }
+
+    return try {
+        return NetworkInterface.getByInetAddress(address) != null
+    } catch (e: UnknownHostException) {
+        false
+    }
+}
+
+private fun isEmptyHostname(address: InetAddress): Boolean {
+    return address.hostName == address.hostAddress
 }
 
 // In the specification http://files.dns-sd.org/draft-cheshire-dnsext-dns-sd.txt 4.1.2 / 7.
